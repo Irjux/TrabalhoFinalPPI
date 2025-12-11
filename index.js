@@ -5,7 +5,19 @@ import session from "express-session";
 const host = "0.0.0.0";
 const porta = 3000;
 
+let equipes = [];
+let jogadores = [];
+
 const app = express();
+
+app.use(session({
+    secret: "sessaoLoL",
+    resave: true,
+    saveUninitialized: true,
+    cookie: {
+        maxAge: 1000 * 60 * 30
+    }
+}));
 
 app.use(express.urlencoded({
     extended: true
@@ -13,230 +25,323 @@ app.use(express.urlencoded({
 
 app.use(cookieParser());
 
-app.use(session({
-    secret: "segredo123",
-    resave: false,
-    saveUninitialized: true,
-    cookie: {
-        maxAge: 30 * 60 * 1000
-    }
-}));
-
-let times = [];
-let jogadores = [];
-
-function proteger(req, res, next) {
-    if (req.session.logado) {
+function autenticar(req, res, next) {
+    if (req.session.usuario?.logado) {
         next();
     } else {
-        res.redirect("/");
+        res.redirect("/login");
     }
 }
 
-app.get("/", (req, res) => {
+app.get("/", autenticar, (req, res) => {
+    let ultimoAcesso = req.cookies?.ultimoAcesso;
+    let agora = new Date().toLocaleString();
+    res.cookie("ultimoAcesso", agora);
+
+    res.send(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+        <title>Menu</title>
+    </head>
+    <body>
+        <nav class="navbar navbar-expand-lg navbar-light bg-light p-3">
+            <a class="navbar-brand">MENU</a>
+            <div class="navbar-nav">
+                <a class="nav-link" href="/cadastroEquipe">Cadastrar Equipe</a>
+                <a class="nav-link" href="/listaEquipes">Listar Equipes</a>
+                <a class="nav-link" href="/cadastroJogador">Cadastrar Jogador</a>
+                <a class="nav-link" href="/listaJogadores">Listar Jogadores</a>
+                <a class="nav-link" href="/logout">Sair</a>
+            </div>
+        </nav>
+        <div class="container mt-3">
+            <p><strong>Último acesso:</strong> ${ultimoAcesso || "Primeiro acesso"}</p>
+        </div>
+    </body>
+    </html>
+    `);
+});
+
+app.get("/cadastroEquipe", autenticar, (req, res) => {
+    res.send(`
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+        <title>Cadastrar Equipe</title>
+    </head>
+    <body>
+        <div class="container mt-4">
+            <h2 class="mb-3">Cadastro de Equipe</h2>
+            <form method="POST" action="/salvarEquipe" class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">Nome da equipe</label>
+                    <input type="text" class="form-control" name="nome">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Capitão</label>
+                    <input type="text" class="form-control" name="capitao">
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Contato (WhatsApp)</label>
+                    <input type="text" class="form-control" name="contato">
+                </div>
+                <div class="col-12 mt-3">
+                    <button class="btn btn-primary">Cadastrar</button>
+                    <a class="btn btn-secondary" href="/">Menu</a>
+                </div>
+            </form>
+        </div>
+    </body>
+    </html>
+    `);
+});
+
+app.post("/salvarEquipe", autenticar, (req, res) => {
+    const { nome, capitao, contato } = req.body;
+
+    let erros = [];
+
+    if (!nome) erros.push("Nome da equipe é obrigatório.");
+    if (!capitao) erros.push("Nome do capitão é obrigatório.");
+    if (!contato) erros.push("Contato é obrigatório.");
+
+    if (contato && !/^[0-9]+$/.test(contato)) {
+        erros.push("O contato deve conter apenas números.");
+    }
+
+    if (contato && contato.length < 9) {
+        erros.push("O contato deve ter ao menos 9 dígitos.");
+    }
+
+    if (erros.length > 0) {
+        return res.send(`
+        <html><body>
+            <div class="container mt-4">
+                <h2>Erros encontrados</h2>
+                <ul class="text-danger">
+                    ${erros.map(e => `<li>${e}</li>`).join("")}
+                </ul>
+                <a class="btn btn-secondary mt-3" href="/cadastroEquipe">Voltar</a>
+            </div>
+        </body></html>
+        `);
+    }
+
+    equipes.push({ nome, capitao, contato });
+    res.redirect("/listaEquipes");
+});
+
+app.get("/listaEquipes", autenticar, (req, res) => {
     let html = `
-    <h2>Login</h2>
-    <form method="POST" action="/login">
-        Usuário:<br>
-        <input name="usuario"><br><br>
-        Senha:<br>
-        <input type="password" name="senha"><br><br>
-        <button type="submit">Entrar</button>
-    </form>`;
+    <html><head>
+    <meta charset="UTF-8">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Equipes</title>
+    </head><body>
+    <div class="container mt-4">
+        <h2 class="mb-3">Equipes cadastradas</h2>
+        <table class="table table-striped">
+            <thead><tr>
+                <th>Equipe</th><th>Capitão</th><th>Contato</th>
+            </tr></thead><tbody>
+    `;
+
+    for (let e of equipes) {
+        html += `
+        <tr>
+            <td>${e.nome}</td>
+            <td>${e.capitao}</td>
+            <td>${e.contato}</td>
+        </tr>`;
+    }
+
+    html += `
+        </tbody></table>
+        <a class="btn btn-secondary" href="/cadastroEquipe">Cadastrar outra</a>
+        <a class="btn btn-primary" href="/">Menu</a>
+    </div>
+    </body></html>
+    `;
+
     res.send(html);
+});
+
+app.get("/cadastroJogador", autenticar, (req, res) => {
+    let opcoes = equipes.map(e => `<option value="${e.nome}">${e.nome}</option>`).join("");
+
+    res.send(`
+    <html><head>
+    <meta charset="UTF-8">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Cadastrar Jogador</title>
+    </head><body>
+    <div class="container mt-4">
+        <h2>Cadastro de Jogador</h2>
+        <form method="POST" action="/salvarJogador" class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label">Nome</label>
+                <input type="text" class="form-control" name="nome">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Nickname</label>
+                <input type="text" class="form-control" name="nick">
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Função</label>
+                <select class="form-select" name="funcao">
+                    <option>top</option>
+                    <option>jungle</option>
+                    <option>mid</option>
+                    <option>atirador</option>
+                    <option>suporte</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Elo</label>
+                <select class="form-select" name="elo">
+                    <option>Ferro</option>
+                    <option>Bronze</option>
+                    <option>Prata</option>
+                    <option>Ouro</option>
+                    <option>Platina</option>
+                    <option>Diamante</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Gênero</label>
+                <select class="form-select" name="genero">
+                    <option>Masculino</option>
+                    <option>Feminino</option>
+                    <option>Outro</option>
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label">Equipe</label>
+                <select class="form-select" name="equipe">
+                    ${opcoes}
+                </select>
+            </div>
+            <div class="col-12 mt-3">
+                <button class="btn btn-primary">Cadastrar</button>
+                <a class="btn btn-secondary" href="/">Menu</a>
+            </div>
+        </form>
+    </div>
+    </body></html>
+    `);
+});
+
+app.post("/salvarJogador", autenticar, (req, res) => {
+    const { nome, nick, funcao, elo, genero, equipe } = req.body;
+
+    if (!nome || !nick || !funcao || !elo || !genero || !equipe) {
+        return res.send(`
+        <html><body>
+        <div class="container mt-4">
+            <h2 class="text-danger">Todos os campos são obrigatórios.</h2>
+            <a class="btn btn-secondary mt-3" href="/cadastroJogador">Voltar</a>
+        </div>
+        </body></html>
+        `);
+    }
+
+    jogadores.push({ nome, nick, funcao, elo, genero, equipe });
+    res.redirect("/listaJogadores");
+});
+
+app.get("/listaJogadores", autenticar, (req, res) => {
+    let conteudo = `
+    <html><head>
+    <meta charset="UTF-8">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Jogadores</title>
+    </head><body>
+    <div class="container mt-4">
+        <h2>Jogadores por equipe</h2>
+    `;
+
+    equipes.forEach(eq => {
+        conteudo += `
+        <h4 class="mt-4">${eq.nome}</h4>
+        <table class="table table-bordered">
+            <thead><tr>
+                <th>Nome</th><th>Nick</th><th>Função</th><th>Elo</th><th>Gênero</th>
+            </tr></thead><tbody>
+        `;
+
+        jogadores.filter(j => j.equipe === eq.nome).forEach(j => {
+            conteudo += `
+            <tr>
+                <td>${j.nome}</td>
+                <td>${j.nick}</td>
+                <td>${j.funcao}</td>
+                <td>${j.elo}</td>
+                <td>${j.genero}</td>
+            </tr>
+            `;
+        });
+
+        conteudo += `</tbody></table>`;
+    });
+
+    conteudo += `
+        <a class="btn btn-secondary" href="/cadastroJogador">Cadastrar outro</a>
+        <a class="btn btn-primary" href="/">Menu</a>
+    </div>
+    </body></html>
+    `;
+
+    res.send(conteudo);
+});
+
+app.get("/login", (req, res) => {
+    res.send(`
+    <html><head>
+    <meta charset="UTF-8">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Login</title></head>
+    <body>
+        <div class="container w-25 mt-5">
+            <form action="/login" method="POST" class="border p-4">
+                <h3>Login</h3>
+                <label>Usuário</label>
+                <input type="text" class="form-control" name="user">
+                <label class="mt-2">Senha</label>
+                <input type="password" class="form-control" name="pass">
+                <button class="btn btn-primary mt-3">Entrar</button>
+            </form>
+        </div>
+    </body></html>
+    `);
 });
 
 app.post("/login", (req, res) => {
-    let u = req.body.usuario;
-    let s = req.body.senha;
+    const { user, pass } = req.body;
 
-    if (u === "admin" && s === "admin") {
-        req.session.logado = true;
-
-        let dataAgora = new Date().toLocaleString("pt-BR");
-        res.cookie("ultimoAcesso", dataAgora, {
-            maxAge: 30 * 24 * 60 * 60 * 1000
-        });
-
-        res.redirect("/menu");
-    } else {
-        res.send("<h3>Usuário ou senha inválidos</h3><a href='/'>Voltar</a>");
+    if (user === "admin" && pass === "admin") {
+        req.session.usuario = { logado: true };
+        return res.redirect("/");
     }
+
+    res.send(`
+    <html><body>
+    <div class="container w-25 mt-5">
+        <p class="text-danger">Usuário ou senha inválidos</p>
+        <a href="/login" class="btn btn-secondary mt-3">Voltar</a>
+    </div>
+    </body></html>
+    `);
 });
 
 app.get("/logout", (req, res) => {
-    req.session.destroy(() => {
-        res.redirect("/");
-    });
+    req.session.destroy();
+    res.redirect("/login");
 });
-
-app.get("/menu", proteger, (req, res) => {
-    let ultimo = req.cookies.ultimoAcesso || "Primeiro acesso";
-
-    let html = `
-    <h2>Menu do Sistema</h2>
-    Último acesso: <b>${ultimo}</b><br><br>
-
-    <a href="/cadastro-time">Cadastrar Equipe</a><br>
-    <a href="/cadastro-jogador">Cadastrar Jogador</a><br>
-    <a href="/listar-times">Listar Equipes</a><br>
-    <a href="/listar-jogadores">Listar Jogadores</a><br><br>
-    <a href="/logout">Sair</a>
-    `;
-
-    res.send(html);
-});
-
-
-app.get("/cadastro-time", proteger, (req, res) => {
-    let html = `
-    <h2>Cadastro de Equipes</h2>
-    <form method="POST" action="/cadastro-time">
-        Nome da equipe:<br>
-        <input name="nome"><br><br>
-
-        Capitão:<br>
-        <input name="capitao"><br><br>
-
-        Contato (WhatsApp):<br>
-        <input name="contato"><br><br>
-
-        <button type="submit">Cadastrar</button>
-    </form><br>
-
-    <a href="/menu">Voltar ao menu</a>
-    `;
-    res.send(html);
-});
-
-
-app.post("/cadastro-time", proteger, (req, res) => {
-    let nome = req.body.nome.trim();
-    let capitao = req.body.capitao.trim();
-    let contato = req.body.contato.trim();
-
-    if (!nome || !capitao || !contato) {
-        return res.send("<h3>Todos os campos são obrigatórios.</h3><a href='/cadastro-time'>Voltar</a>");
-    }
-
-    if (!/^[0-9]+$/.test(contato)) {
-        return res.send("<h3>O contato deve conter apenas números.</h3><a href='/cadastro-time'>Voltar</a>");
-    }
-
-    times.push({
-        nome,
-        capitao,
-        contato
-    });
-
-    res.redirect("/listar-times");
-});
-
-
-app.get("/listar-times", proteger, (req, res) => {
-    let html = `<h2>Equipes Cadastradas</h2><ul>`;
-
-    times.forEach(t => {
-        html += `<li><b>${t.nome}</b> — Capitão: ${t.capitao}, Contato: ${t.contato}</li>`;
-    });
-
-    html += `</ul><br><a href="/cadastro-time">Cadastrar nova equipe</a><br><a href="/menu">Menu</a>`;
-    res.send(html);
-});
-
-
-app.get("/cadastro-jogador", proteger, (req, res) => {
-    if (times.length === 0) {
-        return res.send("<h3>Cadastre uma equipe antes de cadastrar jogadores.</h3><a href='/menu'>Voltar</a>");
-    }
-
-    let opcoes = "";
-    times.forEach(t => {
-        opcoes += `<option>${t.nome}</option>`;
-    });
-
-    let html = `
-    <h2>Cadastro de Jogador</h2>
-    <form method="POST" action="/cadastro-jogador">
-        Nome do jogador:<br>
-        <input name="jogador"><br><br>
-
-        Nickname:<br>
-        <input name="nick"><br><br>
-
-        Função:<br>
-        <select name="funcao">
-            <option>top</option>
-            <option>jungle</option>
-            <option>mid</option>
-            <option>atirador</option>
-            <option>suporte</option>
-        </select><br><br>
-
-        Elo:<br>
-        <input name="elo"><br><br>
-
-        Gênero:<br>
-        <input name="genero"><br><br>
-
-        Equipe:<br>
-        <select name="equipe">${opcoes}</select><br><br>
-
-        <button type="submit">Cadastrar</button>
-    </form><br>
-
-    <a href="/menu">Voltar ao menu</a>
-    `;
-    res.send(html);
-});
-
-
-app.post("/cadastro-jogador", proteger, (req, res) => {
-    let jogador = req.body.jogador.trim();
-    let nick = req.body.nick.trim();
-    let funcao = req.body.funcao.trim();
-    let elo = req.body.elo.trim();
-    let genero = req.body.genero.trim();
-    let equipe = req.body.equipe.trim();
-
-    if (!jogador || !nick || !funcao || !elo || !genero || !equipe) {
-        return res.send("<h3>Todos os campos são obrigatórios.</h3><a href='/cadastro-jogador'>Voltar</a>");
-    }
-
-    let qtd = jogadores.filter(j => j.equipe === equipe).length;
-    if (qtd >= 5) {
-        return res.send("<h3>Esta equipe já possui 5 jogadores cadastrados.</h3><a href='/cadastro-jogador'>Voltar</a>");
-    }
-
-    jogadores.push({
-        jogador,
-        nick,
-        funcao,
-        elo,
-        genero,
-        equipe
-    });
-
-    res.redirect("/listar-jogadores");
-});
-
-
-app.get("/listar-jogadores", proteger, (req, res) => {
-    let html = `<h2>Jogadores Cadastrados</h2>`;
-
-    times.forEach(t => {
-        html += `<h3>Equipe: ${t.nome}</h3><ul>`;
-        jogadores.filter(j => j.equipe === t.nome).forEach(j => {
-            html += `<li>${j.jogador} (${j.nick}) — ${j.funcao}, Elo: ${j.elo}, Gênero: ${j.genero}</li>`;
-        });
-        html += `</ul>`;
-    });
-
-    html += `<br><a href="/cadastro-jogador">Cadastrar novo jogador</a><br><a href="/menu">Menu</a>`;
-    res.send(html);
-});
-
 
 app.listen(porta, host, () => {
-    console.log("Servidor rodando");
+    console.log(`Servidor rodando https://${host}:${porta}`);
 });
